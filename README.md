@@ -29,18 +29,39 @@ pnpm add -g engram
 ## Quick Start
 
 ```bash
-# Index a codebase
-engram index /path/to/repo
+# Generate a skill from your Claude Code history
+engram generate-skill --workspace /path/to/repo --output ./skills
 
-# Search for code
+# Ingest Claude Code sessions into memory
+engram ingest-claude --days 14
+
+# Search past decisions
 engram search "authentication flow"
 
-# Find symbols
-engram symbol UserService
+# Get context for a file
+engram context get --file src/auth.ts
 
 # Add context (link a decision to code)
 engram context add --file src/auth.ts --note "Switched to JWT per security review 2024-01"
 ```
+
+## Skill Generation
+
+The killer feature: **automatically generate skills from Claude Code history**.
+
+```bash
+engram generate-skill --days 30
+```
+
+This analyzes your past sessions and generates a SKILL.md that encodes:
+
+- **File co-edits**: Which files are always changed together
+- **Test commands**: How tests are run in this project
+- **Build commands**: How to build/compile
+- **Common workflows**: Frequent tool sequences
+- **Error patterns**: Known issues and their fixes
+
+The generated skill helps future sessions start with project knowledge already loaded.
 
 ## For AI Agents
 

@@ -21,3 +21,15 @@ export type {
   ClaudeCodeEntry,
   ParsedMessage,
 } from './parsers/claude-code.js';
+
+// Generators
+export {
+  extractPatterns,
+  generateSkill,
+  generateProjectSkills,
+} from './generators/skill-generator.js';
+export type {
+  ExtractedPatterns,
+  ToolSequence,
+  ErrorPattern,
+} from './generators/skill-generator.js';

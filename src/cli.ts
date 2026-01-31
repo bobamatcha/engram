@@ -186,6 +186,53 @@ program
   });
 
 program
+  .command('generate-skill')
+  .description('Generate a skill from Claude Code history')
+  .option('-w, --workspace <path>', 'Workspace path', '.')
+  .option('-o, --output <path>', 'Output directory for skill', './skills')
+  .option('-d, --days <number>', 'Days of history to analyze', '30')
+  .option('--json', 'Output JSON')
+  .action(async (options: { workspace: string; output: string; days: string; json?: boolean }) => {
+    const { generateProjectSkills } = await import('./generators/skill-generator.js');
+    
+    const days = parseInt(options.days, 10);
+    
+    try {
+      const { skillPath, patterns } = await generateProjectSkills(
+        options.workspace,
+        options.output,
+        days
+      );
+
+      if (options.json) {
+        console.log(JSON.stringify({
+          type: 'skill_generated',
+          skillPath,
+          patterns: {
+            fileCoEdits: Object.fromEntries(patterns.fileCoEdits),
+            toolSequences: patterns.toolSequences.length,
+            testCommands: patterns.testCommands.length,
+            buildCommands: patterns.buildCommands.length,
+            errorPatterns: patterns.errorPatterns.length,
+          },
+        }, null, 2));
+      } else {
+        console.log(`✅ Skill generated: ${skillPath}`);
+        console.log('');
+        console.log('Patterns found:');
+        console.log(`  - File co-edits: ${patterns.fileCoEdits.size} groups`);
+        console.log(`  - Tool sequences: ${patterns.toolSequences.length}`);
+        console.log(`  - Test commands: ${patterns.testCommands.length}`);
+        console.log(`  - Build commands: ${patterns.buildCommands.length}`);
+        console.log(`  - Error patterns: ${patterns.errorPatterns.length}`);
+      }
+    } catch (err) {
+      console.error('Error:', (err as Error).message);
+      process.exit(1);
+    }
+  });
+
+program
   .command('ingest-claude')
   .description('Ingest Claude Code session history')
   .option('-d, --days <number>', 'Days of history to ingest', '7')
