@@ -186,6 +186,42 @@ program
   });
 
 program
+  .command('ingest-claude')
+  .description('Ingest Claude Code session history')
+  .option('-d, --days <number>', 'Days of history to ingest', '7')
+  .option('-w, --workspace <path>', 'Workspace path', '.')
+  .option('--json', 'Output JSON')
+  .action(async (options: { days: string; workspace: string; json?: boolean }) => {
+    // Dynamic import to avoid loading parser unless needed
+    const { getRecentClaudeContext } = await import('./parsers/claude-code.js');
+    
+    const config = getConfig(options.workspace);
+    const store = new MemoryStore(config);
+    const days = parseInt(options.days, 10);
+
+    const contexts = getRecentClaudeContext(days);
+    
+    for (const ctx of contexts) {
+      store.addContext(ctx);
+    }
+
+    const stats = store.getStats();
+
+    if (options.json) {
+      console.log(JSON.stringify({ 
+        type: 'ingest_complete',
+        contextsAdded: contexts.length,
+        totalContexts: stats.contexts,
+      }, null, 2));
+    } else {
+      console.log(`Ingested ${contexts.length} contexts from Claude Code history (last ${days} days)`);
+      console.log(`Total contexts in store: ${stats.contexts}`);
+    }
+
+    store.close();
+  });
+
+program
   .command('stats')
   .description('Show index statistics')
   .option('-w, --workspace <path>', 'Workspace path', '.')
