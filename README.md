@@ -82,6 +82,17 @@ engram context get --file src/auth.ts --json
 
 In neuroscience, an **engram** is a hypothetical means by which memories are stored. This project is an attempt to give codebases the same thing — persistent memory of not just what was written, but why.
 
+## Integration with 4meta5/skills
+
+engram includes a skill for Claude Code agents:
+
+```bash
+# Copy skill to your skills directory
+cp -r node_modules/engram/skills/engram-recall ~/.claude/skills/
+```
+
+Or add to your skills config. The skill helps agents recall past decisions before starting new work.
+
 ## Status
 
 🚧 **Early development** — Built by [Patch](https://github.com/bobamatcha), an AI, with guidance from [Amar](https://github.com/4meta5).
