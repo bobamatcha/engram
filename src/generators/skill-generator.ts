@@ -85,7 +85,7 @@ export function extractPatterns(sessions: ClaudeCodeSession[]): ExtractedPattern
 
           // Extract file edits
           if (['Write', 'Edit', 'write_file', 'edit_file'].includes(tool.name)) {
-            const file = (tool.input as any).path || (tool.input as any).file_path;
+            const file = (tool.input as any).file_path || (tool.input as any).path || (tool.input as any).file;
             if (file) {
               filesEditedInSession.add(normalizeFilePath(file));
             }

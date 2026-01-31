@@ -80,15 +80,16 @@ export function findClaudeCodeSessions(projectPath?: string): string[] {
       const projectDir = join(claudeDir, project);
       if (!statSync(projectDir).isDirectory()) continue;
 
-      // Find session files (JSONL)
+      // Find main session files (JSONL) - these are the primary sessions
       const files = readdirSync(projectDir);
       for (const file of files) {
         if (file.endsWith('.jsonl')) {
-          sessions.push(join(projectDir, file));
+          // Prioritize main sessions (add them first)
+          sessions.unshift(join(projectDir, file));
         }
       }
 
-      // Check subagents directory
+      // Also check subagents directory
       const subagentsDir = join(projectDir, 'subagents');
       try {
         const subagentFiles = readdirSync(subagentsDir);
