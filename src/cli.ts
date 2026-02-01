@@ -1,89 +1,93 @@
 #!/usr/bin/env node
 /**
  * engram CLI - Memory system for developers and AI agents
+ *
+ * This CLI wraps functionality from:
+ * - @4meta5/semantic-memory: Memory storage and search
+ * - @4meta5/skill-generator: Session analysis and skill generation
  */
 
 import { Command } from 'commander';
-import { MemoryStore } from './memory/store.js';
-import type { EngramConfig } from './types.js';
-import { existsSync, mkdirSync } from 'fs';
+import { existsSync, mkdirSync, writeFileSync } from 'fs';
 import { join, resolve } from 'path';
+
+// Import from workspace packages
+import {
+  createMemoryStore,
+  type MemoryStoreConfig,
+} from '@4meta5/semantic-memory';
+
+import {
+  findClaudeCodeSessions,
+  parseClaudeCodeSession,
+  claudeToUnified,
+  findOpenClawSessions,
+  parseOpenClawSession,
+  openclawToUnified,
+  getSessionStats,
+  extractPatterns,
+  matchesWorkspace,
+  generateProjectSkill,
+  summarizeSession,
+  evaluateTrigger,
+  type UnifiedSession,
+} from '@4meta5/skill-generator';
 
 const program = new Command();
 
 program
   .name('engram')
   .description('Cognitive repository for developer memory')
-  .version('0.1.0');
+  .version('0.2.0');
 
-function getConfig(workspace: string): EngramConfig {
+function getConfig(workspace: string): MemoryStoreConfig {
   const workspacePath = resolve(workspace);
   const engramDir = join(workspacePath, '.engram');
-  
+
   if (!existsSync(engramDir)) {
     mkdirSync(engramDir, { recursive: true });
   }
 
   return {
     dbPath: join(engramDir, 'memory.db'),
-    workspacePath,
-    useVectors: false, // Not yet implemented
   };
 }
 
-program
-  .command('index')
-  .description('Index a codebase')
-  .argument('[path]', 'Path to workspace', '.')
-  .option('--json', 'Output JSON')
-  .action(async (path: string, options: { json?: boolean }) => {
-    const config = getConfig(path);
-    const store = new MemoryStore(config);
-    
-    // TODO: Implement tree-sitter indexing
-    const stats = store.getStats();
-    
-    if (options.json) {
-      console.log(JSON.stringify({ type: 'index', ...stats }, null, 2));
-    } else {
-      console.log(`Indexed ${stats.files} files, ${stats.symbols} symbols`);
-      console.log(`Workspace: ${config.workspacePath}`);
-    }
-    
-    store.close();
-  });
+// ============================================================================
+// Memory Commands (from @4meta5/semantic-memory)
+// ============================================================================
 
 program
   .command('search')
-  .description('Search for code or context')
+  .description('Search memories')
   .argument('<query>', 'Search query')
   .option('-w, --workspace <path>', 'Workspace path', '.')
   .option('-n, --limit <number>', 'Max results', '10')
   .option('--json', 'Output JSON')
   .action(async (query: string, options: { workspace: string; limit: string; json?: boolean }) => {
     const config = getConfig(options.workspace);
-    const store = new MemoryStore(config);
+    const store = createMemoryStore(config);
     const limit = parseInt(options.limit, 10);
 
-    const symbolResults = store.searchSymbols(query, limit);
-    const contextResults = store.searchContexts(query, limit);
+    const results = store.searchBM25(query, limit);
 
     if (options.json) {
       console.log(JSON.stringify({
         type: 'search',
         query,
-        symbols: symbolResults,
-        contexts: contextResults,
+        results: results.map(r => ({
+          id: r.memory.id,
+          content: r.memory.content,
+          score: r.score,
+          metadata: r.memory.metadata,
+        })),
       }, null, 2));
     } else {
       console.log(`Search: "${query}"`);
-      console.log(`\nSymbols (${symbolResults.length}):`);
-      for (const r of symbolResults) {
-        console.log(`  ${r.score.toFixed(2)} ${r.scopedName} (${r.kind}) at ${r.file}:${r.startLine}`);
-      }
-      console.log(`\nContexts (${contextResults.length}):`);
-      for (const r of contextResults) {
-        console.log(`  ${r.score.toFixed(2)} [${r.source}] ${r.content.slice(0, 60)}...`);
+      console.log(`\nResults (${results.length}):`);
+      for (const r of results) {
+        const source = r.memory.metadata?.source || 'unknown';
+        console.log(`  ${r.score.toFixed(2)} [${source}] ${r.memory.content.slice(0, 60)}...`);
       }
     }
 
@@ -91,99 +95,60 @@ program
   });
 
 program
-  .command('symbol')
-  .description('Find symbol definitions')
-  .argument('<name>', 'Symbol name')
+  .command('add')
+  .description('Add a memory')
+  .argument('<content>', 'Memory content')
   .option('-w, --workspace <path>', 'Workspace path', '.')
-  .option('-n, --limit <number>', 'Max results', '10')
+  .option('-t, --topics <topics>', 'Comma-separated topics')
+  .option('-s, --source <source>', 'Source of memory', 'manual')
   .option('--json', 'Output JSON')
-  .action(async (name: string, options: { workspace: string; limit: string; json?: boolean }) => {
-    const config = getConfig(options.workspace);
-    const store = new MemoryStore(config);
-    const limit = parseInt(options.limit, 10);
-
-    const results = store.findSymbolsByName(name, limit);
-
-    if (options.json) {
-      console.log(JSON.stringify({ type: 'symbols', query: name, results }, null, 2));
-    } else {
-      console.log(`Symbol: "${name}"`);
-      console.log(`Found ${results.length} matches:`);
-      for (const s of results) {
-        console.log(`  ${s.scopedName} (${s.kind}) at ${s.file}:${s.startLine}`);
-      }
-    }
-
-    store.close();
-  });
-
-program
-  .command('context')
-  .description('Manage context (why code exists)')
-  .argument('<action>', 'Action: get, add')
-  .option('-f, --file <path>', 'File to get/add context for')
-  .option('-s, --symbol <id>', 'Symbol ID to get/add context for')
-  .option('-n, --note <text>', 'Note to add (for add action)')
-  .option('-w, --workspace <path>', 'Workspace path', '.')
-  .option('--json', 'Output JSON')
-  .action(async (action: string, options: { 
-    file?: string; 
-    symbol?: string; 
-    note?: string;
+  .action(async (content: string, options: {
     workspace: string;
+    topics?: string;
+    source: string;
     json?: boolean;
   }) => {
     const config = getConfig(options.workspace);
-    const store = new MemoryStore(config);
+    const store = createMemoryStore(config);
 
-    if (action === 'get') {
-      let contexts;
-      if (options.file) {
-        contexts = store.getContextsForFile(options.file);
-      } else if (options.symbol) {
-        contexts = store.getContextsForSymbol(options.symbol);
-      } else {
-        console.error('Error: --file or --symbol required for get');
-        process.exit(1);
-      }
+    const memory = await store.add(content, {
+      topics: options.topics?.split(',').map(t => t.trim()),
+      source: options.source,
+    });
 
-      if (options.json) {
-        console.log(JSON.stringify({ type: 'contexts', contexts }, null, 2));
-      } else {
-        console.log(`Found ${contexts.length} contexts:`);
-        for (const c of contexts) {
-          console.log(`  [${c.source}] ${c.content}`);
-        }
-      }
-    } else if (action === 'add') {
-      if (!options.note) {
-        console.error('Error: --note required for add');
-        process.exit(1);
-      }
-
-      const context = {
-        id: crypto.randomUUID(),
-        file: options.file,
-        symbolId: options.symbol,
-        content: options.note,
-        source: 'manual' as const,
-        timestamp: Date.now(),
-      };
-
-      store.addContext(context);
-
-      if (options.json) {
-        console.log(JSON.stringify({ type: 'context_added', context }, null, 2));
-      } else {
-        console.log('Context added.');
-      }
+    if (options.json) {
+      console.log(JSON.stringify({ type: 'memory_added', memory }, null, 2));
     } else {
-      console.error(`Unknown action: ${action}. Use 'get' or 'add'.`);
-      process.exit(1);
+      console.log(`Memory added: ${memory.id}`);
     }
 
     store.close();
   });
+
+program
+  .command('stats')
+  .description('Show memory statistics')
+  .option('-w, --workspace <path>', 'Workspace path', '.')
+  .option('--json', 'Output JSON')
+  .action(async (options: { workspace: string; json?: boolean }) => {
+    const config = getConfig(options.workspace);
+    const store = createMemoryStore(config);
+    const stats = store.getStats();
+
+    if (options.json) {
+      console.log(JSON.stringify({ type: 'stats', ...stats }, null, 2));
+    } else {
+      console.log('engram statistics:');
+      console.log(`  Total memories:        ${stats.totalMemories}`);
+      console.log(`  With embeddings:       ${stats.memoriesWithEmbeddings}`);
+    }
+
+    store.close();
+  });
+
+// ============================================================================
+// Skill Generation Commands (from @4meta5/skill-generator)
+// ============================================================================
 
 program
   .command('generate-skill')
@@ -194,20 +159,18 @@ program
   .option('--no-openclaw', 'Exclude OpenClaw sessions')
   .option('-a, --agent <id>', 'OpenClaw agent ID filter')
   .option('--json', 'Output JSON')
-  .action(async (options: { 
-    workspace: string; 
-    output: string; 
-    days: string; 
+  .action(async (options: {
+    workspace: string;
+    output: string;
+    days: string;
     openclaw: boolean;
     agent?: string;
     json?: boolean;
   }) => {
-    const { generateProjectSkills } = await import('./generators/skill-generator.js');
-    
     const days = parseInt(options.days, 10);
-    
+
     try {
-      const { skillPath, patterns, sessionCount, filteredCount } = await generateProjectSkills(
+      const result = await generateProjectSkill(
         options.workspace,
         options.output,
         {
@@ -220,29 +183,34 @@ program
       if (options.json) {
         console.log(JSON.stringify({
           type: 'skill_generated',
-          skillPath,
+          skillPath: result.skillPath,
           workspace: options.workspace,
-          sessionsUsed: sessionCount,
-          sessionsFiltered: filteredCount,
+          sessionsUsed: result.sessionCount,
+          sessionsFiltered: result.filteredCount,
           patterns: {
-            fileCoEdits: Object.fromEntries(patterns.fileCoEdits),
-            toolSequences: patterns.toolSequences.length,
-            testCommands: patterns.testCommands.length,
-            buildCommands: patterns.buildCommands.length,
-            errorPatterns: patterns.errorPatterns.length,
+            fileCoEdits: Object.fromEntries(result.patterns.fileCoEdits),
+            toolSequences: result.patterns.toolSequences.length,
+            testCommands: result.patterns.testCommands.length,
+            buildCommands: result.patterns.buildCommands.length,
+            errorPatterns: result.patterns.errorPatterns.length,
           },
+          qualityScore: result.qualityReport?.score,
         }, null, 2));
       } else {
-        console.log(`✅ Skill generated: ${skillPath}`);
+        console.log(`Skill generated: ${result.skillPath}`);
         console.log('');
-        console.log(`Sessions: ${sessionCount} matched workspace (${filteredCount} filtered out)`);
+        console.log(`Sessions: ${result.sessionCount} matched workspace (${result.filteredCount} filtered out)`);
         console.log('');
         console.log('Patterns found:');
-        console.log(`  - File co-edits: ${patterns.fileCoEdits.size} groups`);
-        console.log(`  - Tool sequences: ${patterns.toolSequences.length}`);
-        console.log(`  - Test commands: ${patterns.testCommands.length}`);
-        console.log(`  - Build commands: ${patterns.buildCommands.length}`);
-        console.log(`  - Error patterns: ${patterns.errorPatterns.length}`);
+        console.log(`  - File co-edits: ${result.patterns.fileCoEdits.size} groups`);
+        console.log(`  - Tool sequences: ${result.patterns.toolSequences.length}`);
+        console.log(`  - Test commands: ${result.patterns.testCommands.length}`);
+        console.log(`  - Build commands: ${result.patterns.buildCommands.length}`);
+        console.log(`  - Error patterns: ${result.patterns.errorPatterns.length}`);
+        if (result.qualityReport) {
+          console.log('');
+          console.log(`Quality score: ${(result.qualityReport.score * 100).toFixed(0)}%`);
+        }
       }
     } catch (err) {
       console.error('Error:', (err as Error).message);
@@ -251,98 +219,96 @@ program
   });
 
 program
-  .command('ingest-claude')
-  .description('Ingest Claude Code session history')
-  .option('-d, --days <number>', 'Days of history to ingest', '7')
-  .option('-w, --workspace <path>', 'Workspace path', '.')
+  .command('evaluate-skill')
+  .description('Evaluate if current sessions warrant skill generation')
+  .option('-w, --workspace <path>', 'Workspace path to filter sessions', '.')
+  .option('-d, --days <number>', 'Days of history to analyze', '7')
+  .option('-t, --threshold <number>', 'Trigger threshold (0-1)', '0.5')
+  .option('--no-openclaw', 'Exclude OpenClaw sessions')
+  .option('-a, --agent <id>', 'OpenClaw agent ID filter')
   .option('--json', 'Output JSON')
-  .action(async (options: { days: string; workspace: string; json?: boolean }) => {
-    // Dynamic import to avoid loading parser unless needed
-    const { getRecentClaudeContext } = await import('./parsers/claude-code.js');
-    
-    const config = getConfig(options.workspace);
-    const store = new MemoryStore(config);
+  .action(async (options: {
+    workspace: string;
+    days: string;
+    threshold: string;
+    openclaw: boolean;
+    agent?: string;
+    json?: boolean;
+  }) => {
     const days = parseInt(options.days, 10);
+    const threshold = parseFloat(options.threshold);
+    const cutoff = Date.now() - (days * 24 * 60 * 60 * 1000);
+    const resolvedPath = resolve(options.workspace);
 
-    const contexts = getRecentClaudeContext(days);
-    
-    for (const ctx of contexts) {
-      store.addContext(ctx);
+    // Collect sessions
+    const allSessions: UnifiedSession[] = [];
+
+    // Claude Code sessions
+    const claudeSessions = findClaudeCodeSessions()
+      .map(parseClaudeCodeSession)
+      .filter(s => s.endTime.getTime() > cutoff);
+
+    for (const session of claudeSessions) {
+      const unified = claudeToUnified(session);
+      if (matchesWorkspace(unified, resolvedPath)) {
+        allSessions.push(unified);
+      }
     }
 
-    const stats = store.getStats();
+    // OpenClaw sessions
+    if (options.openclaw) {
+      const openclawSessions = findOpenClawSessions(options.agent)
+        .map(parseOpenClawSession)
+        .filter(s => s.endTime.getTime() > cutoff);
 
-    if (options.json) {
-      console.log(JSON.stringify({ 
-        type: 'ingest_complete',
-        source: 'claude-code',
-        contextsAdded: contexts.length,
-        totalContexts: stats.contexts,
-      }, null, 2));
-    } else {
-      console.log(`Ingested ${contexts.length} contexts from Claude Code history (last ${days} days)`);
-      console.log(`Total contexts in store: ${stats.contexts}`);
-    }
-
-    store.close();
-  });
-
-program
-  .command('ingest-openclaw')
-  .description('Ingest OpenClaw session history')
-  .option('-d, --days <number>', 'Days of history to ingest', '7')
-  .option('-a, --agent <id>', 'Agent ID to ingest (default: all)')
-  .option('-w, --workspace <path>', 'Workspace path', '.')
-  .option('--json', 'Output JSON')
-  .action(async (options: { days: string; agent?: string; workspace: string; json?: boolean }) => {
-    // Dynamic import to avoid loading parser unless needed
-    const { getRecentOpenClawContext, findOpenClawSessions, parseOpenClawSession, getSessionStats } = 
-      await import('./parsers/openclaw.js');
-    
-    const config = getConfig(options.workspace);
-    const store = new MemoryStore(config);
-    const days = parseInt(options.days, 10);
-
-    const contexts = getRecentOpenClawContext(days, options.agent);
-    
-    for (const ctx of contexts) {
-      store.addContext(ctx);
-    }
-
-    // Get session stats for reporting
-    const sessionFiles = findOpenClawSessions(options.agent);
-    const sessions = sessionFiles.map(parseOpenClawSession);
-    const sessionStats = getSessionStats(sessions);
-
-    const stats = store.getStats();
-
-    if (options.json) {
-      console.log(JSON.stringify({ 
-        type: 'ingest_complete',
-        source: 'openclaw',
-        contextsAdded: contexts.length,
-        totalContexts: stats.contexts,
-        sessions: sessionStats,
-      }, null, 2));
-    } else {
-      console.log(`Ingested ${contexts.length} contexts from OpenClaw history (last ${days} days)`);
-      console.log(`Sessions: ${sessionStats.totalSessions}, Messages: ${sessionStats.totalMessages}`);
-      console.log(`Total cost: $${sessionStats.totalCost.toFixed(4)}`);
-      if (Object.keys(sessionStats.byAgent).length > 1) {
-        console.log('\nBy agent:');
-        for (const [agent, agentStats] of Object.entries(sessionStats.byAgent)) {
-          console.log(`  ${agent}: ${agentStats.sessions} sessions, ${agentStats.messages} messages, $${agentStats.cost.toFixed(4)}`);
+      for (const session of openclawSessions) {
+        const unified = openclawToUnified(session);
+        if (matchesWorkspace(unified, resolvedPath)) {
+          allSessions.push(unified);
         }
       }
-      console.log(`\nTotal contexts in store: ${stats.contexts}`);
     }
 
-    store.close();
+    if (allSessions.length === 0) {
+      if (options.json) {
+        console.log(JSON.stringify({ shouldTrigger: false, reason: 'no_sessions' }));
+      } else {
+        console.log('No sessions found for workspace');
+      }
+      process.exit(1);
+    }
+
+    // Evaluate
+    const evaluation = evaluateTrigger(allSessions, { threshold });
+
+    if (options.json) {
+      console.log(JSON.stringify({
+        type: 'evaluation',
+        ...evaluation,
+      }, null, 2));
+    } else {
+      console.log(`Trigger evaluation for ${allSessions.length} sessions:`);
+      console.log('');
+      console.log(`  Should trigger: ${evaluation.shouldTrigger ? 'YES' : 'NO'}`);
+      console.log(`  Score: ${(evaluation.score * 100).toFixed(0)}% (threshold: ${(threshold * 100).toFixed(0)}%)`);
+      console.log('');
+      console.log('  Signals detected:');
+      for (const signal of evaluation.signals) {
+        const status = signal.triggered ? '[x]' : '[ ]';
+        console.log(`    ${status} ${signal.type} (${(signal.confidence * 100).toFixed(0)}%)`);
+        if (signal.evidence) {
+          console.log(`        "${signal.evidence.slice(0, 50)}..."`);
+        }
+      }
+    }
+
+    // Exit with appropriate code for scripting
+    process.exit(evaluation.shouldTrigger ? 0 : 1);
   });
 
 program
   .command('sessions')
-  .description('List and inspect session history')
+  .description('List session history')
   .option('-s, --source <type>', 'Source: claude-code, openclaw, all', 'all')
   .option('-d, --days <number>', 'Days of history', '7')
   .option('-a, --agent <id>', 'Agent ID (OpenClaw only)')
@@ -350,7 +316,7 @@ program
   .action(async (options: { source: string; days: string; agent?: string; json?: boolean }) => {
     const days = parseInt(options.days, 10);
     const cutoff = Date.now() - (days * 24 * 60 * 60 * 1000);
-    
+
     const allSessions: Array<{
       source: string;
       id: string;
@@ -362,7 +328,6 @@ program
 
     // Claude Code sessions
     if (options.source === 'all' || options.source === 'claude-code') {
-      const { findClaudeCodeSessions, parseClaudeCodeSession } = await import('./parsers/claude-code.js');
       const files = findClaudeCodeSessions();
       for (const file of files) {
         try {
@@ -384,7 +349,6 @@ program
 
     // OpenClaw sessions
     if (options.source === 'all' || options.source === 'openclaw') {
-      const { findOpenClawSessions, parseOpenClawSession } = await import('./parsers/openclaw.js');
       const files = findOpenClawSessions(options.agent);
       for (const file of files) {
         try {
@@ -434,28 +398,6 @@ program
   });
 
 program
-  .command('stats')
-  .description('Show index statistics')
-  .option('-w, --workspace <path>', 'Workspace path', '.')
-  .option('--json', 'Output JSON')
-  .action(async (options: { workspace: string; json?: boolean }) => {
-    const config = getConfig(options.workspace);
-    const store = new MemoryStore(config);
-    const stats = store.getStats();
-
-    if (options.json) {
-      console.log(JSON.stringify({ type: 'stats', ...stats }, null, 2));
-    } else {
-      console.log('engram statistics:');
-      console.log(`  Files:    ${stats.files}`);
-      console.log(`  Symbols:  ${stats.symbols}`);
-      console.log(`  Contexts: ${stats.contexts}`);
-    }
-
-    store.close();
-  });
-
-program
   .command('summarize')
   .description('Summarize sessions and extract learnings (requires ANTHROPIC_API_KEY)')
   .option('-w, --workspace <path>', 'Workspace path to filter sessions', '.')
@@ -465,21 +407,15 @@ program
   .option('-c, --min-confidence <number>', 'Minimum confidence threshold (0-1)', '0.5')
   .option('-o, --output <path>', 'Output file for learnings JSON')
   .option('--json', 'Output JSON')
-  .action(async (options: { 
-    workspace: string; 
-    days: string; 
+  .action(async (options: {
+    workspace: string;
+    days: string;
     openclaw: boolean;
     agent?: string;
     minConfidence: string;
     output?: string;
     json?: boolean;
   }) => {
-    const { summarizeSession } = await import('./summarizer/index.js');
-    const { findClaudeCodeSessions, parseClaudeCodeSession } = await import('./parsers/claude-code.js');
-    const { findOpenClawSessions, parseOpenClawSession } = await import('./parsers/openclaw.js');
-    const { writeFileSync } = await import('fs');
-    const { resolve } = await import('path');
-    
     // Check for API key
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
@@ -520,7 +456,6 @@ program
     };
 
     // Collect sessions
-    type UnifiedSession = Parameters<typeof summarizeSession>[0];
     const allSessions: UnifiedSession[] = [];
 
     // Claude Code sessions
@@ -529,8 +464,9 @@ program
       .filter(s => s.endTime.getTime() > cutoff);
 
     for (const session of claudeSessions) {
-      if (session.cwd?.startsWith(resolvedWorkspace)) {
-        allSessions.push(session as UnifiedSession);
+      const unified = claudeToUnified(session);
+      if (matchesWorkspace(unified, resolvedWorkspace)) {
+        allSessions.push(unified);
       }
     }
 
@@ -541,21 +477,8 @@ program
         .filter(s => s.endTime.getTime() > cutoff);
 
       for (const session of openclawSessions) {
-        if (!session.cwd || session.cwd.startsWith(resolvedWorkspace)) {
-          // Convert OpenClaw session to unified format
-          const unified: UnifiedSession = {
-            sessionId: session.sessionId,
-            cwd: session.cwd,
-            messages: session.messages.map(m => ({
-              id: m.id,
-              role: m.role as 'user' | 'assistant',
-              content: m.content,
-              timestamp: m.timestamp,
-              toolCalls: m.toolCalls?.map(t => ({ name: t.name, input: t.arguments })),
-            })),
-            startTime: session.startTime,
-            endTime: session.endTime,
-          };
+        const unified = openclawToUnified(session);
+        if (matchesWorkspace(unified, resolvedWorkspace)) {
           allSessions.push(unified);
         }
       }
@@ -579,19 +502,19 @@ program
     }> = [];
 
     for (const session of allSessions) {
-      if (session.messages.length < 3) continue; // Skip very short sessions
+      if (session.messages.length < 3) continue;
 
       try {
         process.stdout.write(`  Summarizing ${session.sessionId.slice(0, 8)}... `);
         const summary = await summarizeSession(session, { llmClient, minConfidence });
-        
+
         for (const learning of summary.learnings) {
           allLearnings.push({
             sessionId: session.sessionId,
             ...learning,
           });
         }
-        
+
         console.log(`${summary.learnings.length} learnings`);
       } catch (err) {
         console.log(`error: ${(err as Error).message}`);
@@ -616,13 +539,13 @@ program
 
     if (options.output) {
       writeFileSync(options.output, JSON.stringify(result, null, 2));
-      console.log(`\n✅ Learnings saved to: ${options.output}`);
+      console.log(`\nLearnings saved to: ${options.output}`);
     }
 
     if (options.json) {
       console.log(JSON.stringify(result, null, 2));
     } else if (!options.output) {
-      console.log(`\n📊 Summary:`);
+      console.log(`\nSummary:`);
       console.log(`  Sessions: ${result.sessionsProcessed}`);
       console.log(`  Learnings: ${result.totalLearnings}`);
       console.log(`\n  By category:`);
@@ -633,16 +556,147 @@ program
       console.log(`    Context:     ${result.byCategory.context}`);
 
       if (allLearnings.length > 0) {
-        console.log(`\n📝 Top learnings:`);
+        console.log(`\nTop learnings:`);
         const topLearnings = allLearnings
           .sort((a, b) => b.confidence - a.confidence)
           .slice(0, 5);
-        
+
         for (const learning of topLearnings) {
           console.log(`  [${learning.category}] ${learning.summary}`);
         }
       }
     }
+  });
+
+// ============================================================================
+// Legacy Commands (backward compatibility)
+// ============================================================================
+
+program
+  .command('index')
+  .description('Index a codebase (placeholder)')
+  .argument('[path]', 'Path to workspace', '.')
+  .option('--json', 'Output JSON')
+  .action(async (path: string, options: { json?: boolean }) => {
+    const config = getConfig(path);
+    const store = createMemoryStore(config);
+    const stats = store.getStats();
+
+    if (options.json) {
+      console.log(JSON.stringify({ type: 'index', ...stats }, null, 2));
+    } else {
+      console.log(`Index: ${stats.totalMemories} memories`);
+      console.log('Note: Tree-sitter indexing not yet implemented in new architecture');
+    }
+
+    store.close();
+  });
+
+program
+  .command('ingest-claude')
+  .description('Ingest Claude Code session history into memory')
+  .option('-d, --days <number>', 'Days of history to ingest', '7')
+  .option('-w, --workspace <path>', 'Workspace path', '.')
+  .option('--json', 'Output JSON')
+  .action(async (options: { days: string; workspace: string; json?: boolean }) => {
+    const config = getConfig(options.workspace);
+    const store = createMemoryStore(config);
+    const days = parseInt(options.days, 10);
+    const cutoff = Date.now() - (days * 24 * 60 * 60 * 1000);
+
+    const sessions = findClaudeCodeSessions()
+      .map(parseClaudeCodeSession)
+      .filter(s => s.endTime.getTime() > cutoff);
+
+    let added = 0;
+    for (const session of sessions) {
+      for (const msg of session.messages) {
+        if (msg.content && msg.content.length > 20) {
+          await store.add(msg.content, {
+            source: 'chat',
+            sessionId: session.sessionId,
+            role: msg.role,
+          }, { id: msg.id });
+          added++;
+        }
+      }
+    }
+
+    const stats = store.getStats();
+
+    if (options.json) {
+      console.log(JSON.stringify({
+        type: 'ingest_complete',
+        source: 'claude-code',
+        memoriesAdded: added,
+        totalMemories: stats.totalMemories,
+      }, null, 2));
+    } else {
+      console.log(`Ingested ${added} memories from Claude Code history (last ${days} days)`);
+      console.log(`Total memories in store: ${stats.totalMemories}`);
+    }
+
+    store.close();
+  });
+
+program
+  .command('ingest-openclaw')
+  .description('Ingest OpenClaw session history into memory')
+  .option('-d, --days <number>', 'Days of history to ingest', '7')
+  .option('-a, --agent <id>', 'Agent ID to ingest (default: all)')
+  .option('-w, --workspace <path>', 'Workspace path', '.')
+  .option('--json', 'Output JSON')
+  .action(async (options: { days: string; agent?: string; workspace: string; json?: boolean }) => {
+    const config = getConfig(options.workspace);
+    const store = createMemoryStore(config);
+    const days = parseInt(options.days, 10);
+    const cutoff = Date.now() - (days * 24 * 60 * 60 * 1000);
+
+    const sessions = findOpenClawSessions(options.agent)
+      .map(parseOpenClawSession)
+      .filter(s => s.endTime.getTime() > cutoff);
+
+    const sessionStats = getSessionStats(sessions);
+
+    let added = 0;
+    for (const session of sessions) {
+      for (const msg of session.messages) {
+        if (msg.content && msg.content.length > 20) {
+          await store.add(msg.content, {
+            source: 'chat',
+            sessionId: session.sessionId,
+            agentId: session.agentId,
+            role: msg.role,
+          }, { id: msg.id });
+          added++;
+        }
+      }
+    }
+
+    const stats = store.getStats();
+
+    if (options.json) {
+      console.log(JSON.stringify({
+        type: 'ingest_complete',
+        source: 'openclaw',
+        memoriesAdded: added,
+        totalMemories: stats.totalMemories,
+        sessions: sessionStats,
+      }, null, 2));
+    } else {
+      console.log(`Ingested ${added} memories from OpenClaw history (last ${days} days)`);
+      console.log(`Sessions: ${sessionStats.totalSessions}, Messages: ${sessionStats.totalMessages}`);
+      console.log(`Total cost: $${sessionStats.totalCost.toFixed(4)}`);
+      if (Object.keys(sessionStats.byAgent).length > 1) {
+        console.log('\nBy agent:');
+        for (const [agent, agentStats] of Object.entries(sessionStats.byAgent)) {
+          console.log(`  ${agent}: ${agentStats.sessions} sessions, ${agentStats.messages} messages, $${agentStats.cost.toFixed(4)}`);
+        }
+      }
+      console.log(`\nTotal memories in store: ${stats.totalMemories}`);
+    }
+
+    store.close();
   });
 
 program.parse();

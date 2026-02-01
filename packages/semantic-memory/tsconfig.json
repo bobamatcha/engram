@@ -13,12 +13,8 @@
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
-    "resolveJsonModule": true,
-    "paths": {
-      "@4meta5/semantic-memory": ["./packages/semantic-memory/dist/index.d.ts"],
-      "@4meta5/skill-generator": ["./packages/skill-generator/dist/index.d.ts"]
-    }
+    "resolveJsonModule": true
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "tests", "packages"]
+  "exclude": ["node_modules", "dist"]
 }
