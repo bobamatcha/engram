@@ -1,0 +1,58 @@
+{
+  "name": "@4meta5/semantic-memory",
+  "version": "0.1.0",
+  "description": "Standalone semantic memory storage with hybrid search (BM25 + vector + RRF fusion)",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "keywords": [
+    "memory",
+    "semantic-search",
+    "sqlite",
+    "fts5",
+    "bm25",
+    "vector-search",
+    "hybrid-search",
+    "rrf",
+    "local-first"
+  ],
+  "author": "Patch <patch@bobamatchasolutions.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bobamatcha/engram",
+    "directory": "packages/semantic-memory"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.0.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.0",
+    "@types/node": "^20.0.0",
+    "typescript": "^5.4.0",
+    "vitest": "^2.0.0"
+  },
+  "peerDependencies": {
+    "@lancedb/lancedb": ">=0.4.0"
+  },
+  "peerDependenciesMeta": {
+    "@lancedb/lancedb": {
+      "optional": true
+    }
+  }
+}
