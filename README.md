@@ -20,10 +20,21 @@ Think of it as a "memory layer" for your codebase — one that understands both 
 
 ## Installation
 
+### From source (recommended for now)
+
 ```bash
+git clone https://github.com/bobamatcha/engram.git
+cd engram
+npm install
+npm run build
+npm link  # makes 'engram' available globally
+```
+
+### From npm (coming soon)
+
+```bash
+# Not yet published — use source install above
 npm install -g engram
-# or
-pnpm add -g engram
 ```
 
 ## Quick Start
