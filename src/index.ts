@@ -47,4 +47,5 @@ export type {
   ExtractedPatterns,
   ToolSequence,
   ErrorPattern,
+  GenerateSkillOptions,
 } from './generators/skill-generator.js';

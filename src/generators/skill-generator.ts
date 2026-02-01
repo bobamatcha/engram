@@ -12,8 +12,32 @@ import {
   type ParsedMessage,
   type ToolCall,
 } from '../parsers/claude-code.js';
+import {
+  findOpenClawSessions,
+  parseOpenClawSession,
+  type OpenClawSession,
+} from '../parsers/openclaw.js';
 import { writeFileSync, mkdirSync, existsSync } from 'fs';
-import { join, basename, dirname } from 'path';
+import { join, basename, dirname, resolve } from 'path';
+
+/** Options for skill generation */
+export interface GenerateSkillOptions {
+  /** Days of history to analyze */
+  days?: number;
+  /** Include OpenClaw sessions */
+  includeOpenClaw?: boolean;
+  /** OpenClaw agent ID filter */
+  openclawAgent?: string;
+}
+
+/** Unified session type for pattern extraction */
+interface UnifiedSession {
+  sessionId: string;
+  cwd?: string;
+  messages: ParsedMessage[];
+  startTime: Date;
+  endTime: Date;
+}
 
 /** Patterns extracted from history */
 export interface ExtractedPatterns {
@@ -61,7 +85,7 @@ export interface ProjectPattern {
 /**
  * Analyze sessions and extract patterns
  */
-export function extractPatterns(sessions: ClaudeCodeSession[]): ExtractedPatterns {
+export function extractPatterns(sessions: UnifiedSession[]): ExtractedPatterns {
   const fileCoEdits = new Map<string, string[]>();
   const toolSequences: ToolSequence[] = [];
   const testCommands: string[] = [];
@@ -82,17 +106,18 @@ export function extractPatterns(sessions: ClaudeCodeSession[]): ExtractedPattern
       if (msg.toolCalls) {
         for (const tool of msg.toolCalls) {
           toolsInSession.push(tool.name);
+          const toolNameLower = tool.name.toLowerCase();
 
           // Extract file edits
-          if (['Write', 'Edit', 'write_file', 'edit_file'].includes(tool.name)) {
-            const file = (tool.input as any).file_path || (tool.input as any).path || (tool.input as any).file;
+          if (['write', 'edit', 'write_file', 'edit_file'].includes(toolNameLower)) {
+            const file = (tool.input as any).path || (tool.input as any).file_path || (tool.input as any).file;
             if (file) {
               filesEditedInSession.add(normalizeFilePath(file));
             }
           }
 
           // Extract test commands
-          if (['Bash', 'exec', 'run_command'].includes(tool.name)) {
+          if (['bash', 'exec', 'run_command'].includes(toolNameLower)) {
             const cmd = (tool.input as any).command || '';
             if (isTestCommand(cmd)) {
               if (!testCommands.includes(cmd)) {
@@ -280,25 +305,146 @@ export function generateSkill(
 }
 
 /**
- * Generate skills for a project from Claude Code history
+ * Check if a session is primarily working in the target workspace.
+ * Uses a heuristic: count file operations in the workspace vs total.
+ * Requires >50% of file operations to be in the target workspace.
+ */
+function matchesWorkspace(session: UnifiedSession, targetPath: string): boolean {
+  const resolvedTarget = resolve(targetPath);
+  
+  // First check session cwd
+  if (session.cwd) {
+    const resolvedCwd = resolve(session.cwd);
+    if (resolvedCwd === resolvedTarget || resolvedCwd.startsWith(resolvedTarget + '/')) {
+      return true;
+    }
+  }
+  
+  // Fall back to analyzing file operations
+  let inWorkspace = 0;
+  let total = 0;
+  
+  for (const msg of session.messages) {
+    if (!msg.toolCalls) continue;
+    
+    for (const tool of msg.toolCalls) {
+      // Look for file operations
+      if (['Write', 'Edit', 'Read', 'write', 'edit', 'read', 'write_file', 'read_file', 'edit_file'].includes(tool.name)) {
+        const filePath = (tool.input as any).path || 
+                        (tool.input as any).file_path || 
+                        (tool.input as any).file ||
+                        (tool.input as any).filePath;
+        
+        if (filePath) {
+          total++;
+          const resolvedFile = resolve(filePath);
+          if (resolvedFile.startsWith(resolvedTarget + '/') || resolvedFile === resolvedTarget) {
+            inWorkspace++;
+          }
+        }
+      }
+    }
+  }
+  
+  // Require >50% of file operations in workspace, with minimum of 5 operations
+  if (total >= 5) {
+    return inWorkspace / total > 0.5;
+  }
+  
+  // If too few file operations, require at least 3 in workspace
+  return inWorkspace >= 3;
+}
+
+/**
+ * Convert OpenClaw session to unified format
+ */
+function openclawToUnified(session: OpenClawSession): UnifiedSession {
+  return {
+    sessionId: session.sessionId,
+    cwd: session.cwd,
+    messages: session.messages.map(m => ({
+      id: m.id,
+      role: m.role,
+      content: m.content,
+      timestamp: m.timestamp,
+      toolCalls: m.toolCalls?.map(t => ({
+        name: t.name,
+        input: t.arguments,
+      })),
+      parentId: m.parentId,
+    })),
+    startTime: session.startTime,
+    endTime: session.endTime,
+  };
+}
+
+/**
+ * Convert Claude Code session to unified format
+ */
+function claudeToUnified(session: ClaudeCodeSession): UnifiedSession {
+  return {
+    sessionId: session.sessionId,
+    cwd: session.cwd,
+    messages: session.messages,
+    startTime: session.startTime,
+    endTime: session.endTime,
+  };
+}
+
+/**
+ * Generate skills for a project from Claude Code and OpenClaw history
  */
 export async function generateProjectSkills(
   projectPath: string,
   outputDir: string,
-  days = 30,
-): Promise<{ skillPath: string; patterns: ExtractedPatterns }> {
-  const sessions = findClaudeCodeSessions()
-    .map(parseClaudeCodeSession)
-    .filter(s => {
-      const cutoff = Date.now() - (days * 24 * 60 * 60 * 1000);
-      return s.endTime.getTime() > cutoff;
-    });
+  options: GenerateSkillOptions = {},
+): Promise<{ skillPath: string; patterns: ExtractedPatterns; sessionCount: number; filteredCount: number }> {
+  const { days = 30, includeOpenClaw = true, openclawAgent } = options;
+  const cutoff = Date.now() - (days * 24 * 60 * 60 * 1000);
+  const resolvedPath = resolve(projectPath);
+  
+  const allSessions: UnifiedSession[] = [];
+  let totalFound = 0;
 
-  if (sessions.length === 0) {
-    throw new Error('No Claude Code sessions found');
+  // Collect Claude Code sessions
+  const claudeSessions = findClaudeCodeSessions()
+    .map(parseClaudeCodeSession)
+    .filter(s => s.endTime.getTime() > cutoff);
+  
+  totalFound += claudeSessions.length;
+  
+  for (const session of claudeSessions) {
+    const unified = claudeToUnified(session);
+    if (matchesWorkspace(unified, resolvedPath)) {
+      allSessions.push(unified);
+    }
   }
 
-  const patterns = extractPatterns(sessions);
+  // Collect OpenClaw sessions
+  if (includeOpenClaw) {
+    const openclawSessions = findOpenClawSessions(openclawAgent)
+      .map(parseOpenClawSession)
+      .filter(s => s.endTime.getTime() > cutoff);
+    
+    totalFound += openclawSessions.length;
+    
+    for (const session of openclawSessions) {
+      const unified = openclawToUnified(session);
+      if (matchesWorkspace(unified, resolvedPath)) {
+        allSessions.push(unified);
+      }
+    }
+  }
+
+  if (allSessions.length === 0) {
+    throw new Error(
+      `No sessions found for workspace: ${resolvedPath}\n` +
+      `Total sessions in time range: ${totalFound}\n` +
+      `Try running from the project directory or check the workspace path.`
+    );
+  }
+
+  const patterns = extractPatterns(allSessions);
   const projectName = basename(projectPath) || 'project';
   const skillContent = generateSkill(patterns, projectName, projectPath);
 
@@ -311,7 +457,12 @@ export async function generateProjectSkills(
   const skillPath = join(skillDir, 'SKILL.md');
   writeFileSync(skillPath, skillContent);
 
-  return { skillPath, patterns };
+  return { 
+    skillPath, 
+    patterns, 
+    sessionCount: allSessions.length,
+    filteredCount: totalFound - allSessions.length,
+  };
 }
 
 // Helper functions
@@ -322,6 +473,9 @@ function normalizeFilePath(path: string): string {
 }
 
 function isTestCommand(cmd: string): boolean {
+  // Skip multi-line commands or very long commands
+  if (cmd.includes('\n') || cmd.length > 200) return false;
+  
   const testPatterns = [
     /\btest\b/i,
     /\bvitest\b/i,
@@ -330,11 +484,15 @@ function isTestCommand(cmd: string): boolean {
     /cargo test/i,
     /npm run test/i,
     /pnpm test/i,
+    /npm test/i,
   ];
   return testPatterns.some(p => p.test(cmd));
 }
 
 function isBuildCommand(cmd: string): boolean {
+  // Skip multi-line commands or very long commands
+  if (cmd.includes('\n') || cmd.length > 200) return false;
+  
   const buildPatterns = [
     /\bbuild\b/i,
     /\bcompile\b/i,

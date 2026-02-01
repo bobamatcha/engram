@@ -47,6 +47,8 @@ export interface ClaudeCodeContent {
 export interface ClaudeCodeSession {
   sessionId: string;
   projectPath: string;
+  /** Working directory (cwd) for the session */
+  cwd?: string;
   messages: ParsedMessage[];
   startTime: Date;
   endTime: Date;
@@ -118,6 +120,7 @@ export function parseClaudeCodeSession(filePath: string): ClaudeCodeSession {
   
   const messages: ParsedMessage[] = [];
   let sessionId = '';
+  let cwd: string | undefined;
   let startTime = new Date();
   let endTime = new Date();
 
@@ -127,6 +130,11 @@ export function parseClaudeCodeSession(filePath: string): ClaudeCodeSession {
       
       if (!sessionId && entry.sessionId) {
         sessionId = entry.sessionId;
+      }
+      
+      // Extract cwd from first entry that has it
+      if (!cwd && entry.cwd) {
+        cwd = entry.cwd;
       }
 
       const timestamp = new Date(entry.timestamp);
@@ -175,6 +183,7 @@ export function parseClaudeCodeSession(filePath: string): ClaudeCodeSession {
 
   return {
     sessionId: sessionId || basename(filePath, '.jsonl'),
+    cwd,
     projectPath: filePath,
     messages,
     startTime,

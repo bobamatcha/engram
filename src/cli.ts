@@ -187,27 +187,43 @@ program
 
 program
   .command('generate-skill')
-  .description('Generate a skill from Claude Code history')
-  .option('-w, --workspace <path>', 'Workspace path', '.')
+  .description('Generate a skill from session history (filters by workspace)')
+  .option('-w, --workspace <path>', 'Workspace path to filter sessions', '.')
   .option('-o, --output <path>', 'Output directory for skill', './skills')
   .option('-d, --days <number>', 'Days of history to analyze', '30')
+  .option('--no-openclaw', 'Exclude OpenClaw sessions')
+  .option('-a, --agent <id>', 'OpenClaw agent ID filter')
   .option('--json', 'Output JSON')
-  .action(async (options: { workspace: string; output: string; days: string; json?: boolean }) => {
+  .action(async (options: { 
+    workspace: string; 
+    output: string; 
+    days: string; 
+    openclaw: boolean;
+    agent?: string;
+    json?: boolean;
+  }) => {
     const { generateProjectSkills } = await import('./generators/skill-generator.js');
     
     const days = parseInt(options.days, 10);
     
     try {
-      const { skillPath, patterns } = await generateProjectSkills(
+      const { skillPath, patterns, sessionCount, filteredCount } = await generateProjectSkills(
         options.workspace,
         options.output,
-        days
+        {
+          days,
+          includeOpenClaw: options.openclaw,
+          openclawAgent: options.agent,
+        }
       );
 
       if (options.json) {
         console.log(JSON.stringify({
           type: 'skill_generated',
           skillPath,
+          workspace: options.workspace,
+          sessionsUsed: sessionCount,
+          sessionsFiltered: filteredCount,
           patterns: {
             fileCoEdits: Object.fromEntries(patterns.fileCoEdits),
             toolSequences: patterns.toolSequences.length,
@@ -218,6 +234,8 @@ program
         }, null, 2));
       } else {
         console.log(`✅ Skill generated: ${skillPath}`);
+        console.log('');
+        console.log(`Sessions: ${sessionCount} matched workspace (${filteredCount} filtered out)`);
         console.log('');
         console.log('Patterns found:');
         console.log(`  - File co-edits: ${patterns.fileCoEdits.size} groups`);
