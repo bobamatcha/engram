@@ -455,4 +455,194 @@ program
     store.close();
   });
 
+program
+  .command('summarize')
+  .description('Summarize sessions and extract learnings (requires ANTHROPIC_API_KEY)')
+  .option('-w, --workspace <path>', 'Workspace path to filter sessions', '.')
+  .option('-d, --days <number>', 'Days of history to analyze', '30')
+  .option('--no-openclaw', 'Exclude OpenClaw sessions')
+  .option('-a, --agent <id>', 'OpenClaw agent ID filter')
+  .option('-c, --min-confidence <number>', 'Minimum confidence threshold (0-1)', '0.5')
+  .option('-o, --output <path>', 'Output file for learnings JSON')
+  .option('--json', 'Output JSON')
+  .action(async (options: { 
+    workspace: string; 
+    days: string; 
+    openclaw: boolean;
+    agent?: string;
+    minConfidence: string;
+    output?: string;
+    json?: boolean;
+  }) => {
+    const { summarizeSession } = await import('./summarizer/index.js');
+    const { findClaudeCodeSessions, parseClaudeCodeSession } = await import('./parsers/claude-code.js');
+    const { findOpenClawSessions, parseOpenClawSession } = await import('./parsers/openclaw.js');
+    const { writeFileSync } = await import('fs');
+    const { resolve } = await import('path');
+    
+    // Check for API key
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) {
+      console.error('Error: ANTHROPIC_API_KEY environment variable is required');
+      console.error('Set it with: export ANTHROPIC_API_KEY=your-key');
+      process.exit(1);
+    }
+
+    const days = parseInt(options.days, 10);
+    const minConfidence = parseFloat(options.minConfidence);
+    const cutoff = Date.now() - (days * 24 * 60 * 60 * 1000);
+    const resolvedWorkspace = resolve(options.workspace);
+
+    // Simple LLM client using Anthropic API
+    const llmClient = {
+      complete: async (prompt: string): Promise<string> => {
+        const response = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': apiKey,
+            'anthropic-version': '2023-06-01',
+          },
+          body: JSON.stringify({
+            model: 'claude-sonnet-4-20250514',
+            max_tokens: 4096,
+            messages: [{ role: 'user', content: prompt }],
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error(`Anthropic API error: ${response.status}`);
+        }
+
+        const data = await response.json() as { content: Array<{ type: string; text?: string }> };
+        return data.content[0]?.text || '';
+      },
+    };
+
+    // Collect sessions
+    type UnifiedSession = Parameters<typeof summarizeSession>[0];
+    const allSessions: UnifiedSession[] = [];
+
+    // Claude Code sessions
+    const claudeSessions = findClaudeCodeSessions()
+      .map(parseClaudeCodeSession)
+      .filter(s => s.endTime.getTime() > cutoff);
+
+    for (const session of claudeSessions) {
+      if (session.cwd?.startsWith(resolvedWorkspace)) {
+        allSessions.push(session as UnifiedSession);
+      }
+    }
+
+    // OpenClaw sessions
+    if (options.openclaw) {
+      const openclawSessions = findOpenClawSessions(options.agent)
+        .map(parseOpenClawSession)
+        .filter(s => s.endTime.getTime() > cutoff);
+
+      for (const session of openclawSessions) {
+        if (!session.cwd || session.cwd.startsWith(resolvedWorkspace)) {
+          // Convert OpenClaw session to unified format
+          const unified: UnifiedSession = {
+            sessionId: session.sessionId,
+            cwd: session.cwd,
+            messages: session.messages.map(m => ({
+              id: m.id,
+              role: m.role as 'user' | 'assistant',
+              content: m.content,
+              timestamp: m.timestamp,
+              toolCalls: m.toolCalls?.map(t => ({ name: t.name, input: t.arguments })),
+            })),
+            startTime: session.startTime,
+            endTime: session.endTime,
+          };
+          allSessions.push(unified);
+        }
+      }
+    }
+
+    if (allSessions.length === 0) {
+      console.error(`No sessions found for workspace: ${resolvedWorkspace}`);
+      process.exit(1);
+    }
+
+    console.log(`Found ${allSessions.length} sessions to summarize...`);
+
+    // Summarize each session
+    const allLearnings: Array<{
+      sessionId: string;
+      category: string;
+      summary: string;
+      detail?: string;
+      files?: string[];
+      confidence: number;
+    }> = [];
+
+    for (const session of allSessions) {
+      if (session.messages.length < 3) continue; // Skip very short sessions
+
+      try {
+        process.stdout.write(`  Summarizing ${session.sessionId.slice(0, 8)}... `);
+        const summary = await summarizeSession(session, { llmClient, minConfidence });
+        
+        for (const learning of summary.learnings) {
+          allLearnings.push({
+            sessionId: session.sessionId,
+            ...learning,
+          });
+        }
+        
+        console.log(`${summary.learnings.length} learnings`);
+      } catch (err) {
+        console.log(`error: ${(err as Error).message}`);
+      }
+    }
+
+    // Output results
+    const result = {
+      type: 'summarize',
+      workspace: resolvedWorkspace,
+      sessionsProcessed: allSessions.length,
+      totalLearnings: allLearnings.length,
+      byCategory: {
+        decision: allLearnings.filter(l => l.category === 'decision').length,
+        pattern: allLearnings.filter(l => l.category === 'pattern').length,
+        gotcha: allLearnings.filter(l => l.category === 'gotcha').length,
+        convention: allLearnings.filter(l => l.category === 'convention').length,
+        context: allLearnings.filter(l => l.category === 'context').length,
+      },
+      learnings: allLearnings,
+    };
+
+    if (options.output) {
+      writeFileSync(options.output, JSON.stringify(result, null, 2));
+      console.log(`\n✅ Learnings saved to: ${options.output}`);
+    }
+
+    if (options.json) {
+      console.log(JSON.stringify(result, null, 2));
+    } else if (!options.output) {
+      console.log(`\n📊 Summary:`);
+      console.log(`  Sessions: ${result.sessionsProcessed}`);
+      console.log(`  Learnings: ${result.totalLearnings}`);
+      console.log(`\n  By category:`);
+      console.log(`    Decisions:   ${result.byCategory.decision}`);
+      console.log(`    Patterns:    ${result.byCategory.pattern}`);
+      console.log(`    Gotchas:     ${result.byCategory.gotcha}`);
+      console.log(`    Conventions: ${result.byCategory.convention}`);
+      console.log(`    Context:     ${result.byCategory.context}`);
+
+      if (allLearnings.length > 0) {
+        console.log(`\n📝 Top learnings:`);
+        const topLearnings = allLearnings
+          .sort((a, b) => b.confidence - a.confidence)
+          .slice(0, 5);
+        
+        for (const learning of topLearnings) {
+          console.log(`  [${learning.category}] ${learning.summary}`);
+        }
+      }
+    }
+  });
+
 program.parse();
