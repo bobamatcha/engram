@@ -49,3 +49,15 @@ export type {
   ErrorPattern,
   GenerateSkillOptions,
 } from './generators/skill-generator.js';
+
+// Summarizer
+export {
+  summarizeSession,
+} from './summarizer/index.js';
+export type {
+  Learning,
+  LearningCategory,
+  SessionSummary,
+  LlmClient,
+  SummarizeOptions,
+} from './summarizer/index.js';

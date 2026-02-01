@@ -31,7 +31,7 @@ export interface GenerateSkillOptions {
 }
 
 /** Unified session type for pattern extraction */
-interface UnifiedSession {
+export interface UnifiedSession {
   sessionId: string;
   cwd?: string;
   messages: ParsedMessage[];
