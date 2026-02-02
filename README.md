@@ -29,14 +29,14 @@ npx @4meta5/engram generate-skill --workspace . --output ./skills
 
 ```mermaid
 graph TD
-    CLI[@4meta5/engram CLI] --> SM[@4meta5/semantic-memory]
-    CLI --> SG[@4meta5/skill-generator]
-    SG --> Parsers[Session Parsers]
-    SG --> Extractors[Pattern Extractors]
-    SG --> Generators[Skill Generators]
-    SM --> SQLite[SQLite + FTS5]
-    Parsers --> CC[Claude Code]
-    Parsers --> OC[OpenClaw]
+    CLI["@4meta5/engram CLI"] --> SM["@4meta5/semantic-memory"]
+    CLI --> SG["@4meta5/skill-generator"]
+    SG --> Parsers["Session Parsers"]
+    SG --> Extractors["Pattern Extractors"]
+    SG --> Generators["Skill Generators"]
+    SM --> SQLite["SQLite + FTS5"]
+    Parsers --> CC["Claude Code"]
+    Parsers --> OC["OpenClaw"]
 ```
 
 ## Quick Start
