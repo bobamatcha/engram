@@ -2,7 +2,7 @@
 
 Memory layer for AI coding agents. Stores context, extracts patterns, generates skills.
 
-[![npm version](https://img.shields.io/npm/v/engram.svg)](https://www.npmjs.com/package/engram)
+[![npm version](https://img.shields.io/npm/v/@4meta5/engram.svg)](https://www.npmjs.com/package/@4meta5/engram)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 ```bash

@@ -1,5 +1,5 @@
 {
-  "name": "engram",
+  "name": "@4meta5/engram",
   "version": "0.2.0",
   "description": "Cognitive repository for developer memory. Indexes code AND context.",
   "type": "module",
