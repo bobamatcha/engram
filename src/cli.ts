@@ -8,8 +8,9 @@
  */
 
 import { Command } from 'commander';
+import { execSync } from 'child_process';
 import { existsSync, mkdirSync, writeFileSync } from 'fs';
-import { join, resolve } from 'path';
+import { basename, join, resolve } from 'path';
 
 // Import from workspace packages
 import {
@@ -32,6 +33,7 @@ import {
   evaluateTrigger,
   type UnifiedSession,
 } from '@4meta5/skill-generator';
+import { startMcpServer } from './mcp/server.js';
 
 const program = new Command();
 
@@ -144,6 +146,81 @@ program
     }
 
     store.close();
+  });
+
+program
+  .command('ingest-git')
+  .description('Ingest recent git log summaries into memory')
+  .option('-w, --workspace <path>', 'Workspace path', '.')
+  .option('-d, --days <number>', 'Days of history to analyze', '30')
+  .option('--json', 'Output JSON')
+  .action(async (options: { workspace: string; days: string; json?: boolean }) => {
+    const config = getConfig(options.workspace);
+    const store = createMemoryStore(config);
+    const days = parseInt(options.days, 10);
+
+    let gitRoot = '';
+    try {
+      gitRoot = execSync('git rev-parse --show-toplevel', {
+        cwd: options.workspace,
+        encoding: 'utf8',
+      }).trim();
+    } catch {
+      console.error('Error: Not a git repository (or git not available)');
+      process.exit(1);
+    }
+
+    const repoName = basename(gitRoot);
+    const log = execSync(
+      `git log --since="${days} days ago" --pretty=format:%h%x20%ad%x20%s --date=short`,
+      { cwd: gitRoot, encoding: 'utf8' }
+    ).trim();
+
+    if (!log) {
+      if (options.json) {
+        console.log(JSON.stringify({
+          type: 'ingest_git',
+          repo: repoName,
+          days,
+          added: false,
+          reason: 'no_commits',
+        }, null, 2));
+      } else {
+        console.log(`No commits found in the last ${days} days for ${repoName}`);
+      }
+      store.close();
+      return;
+    }
+
+    const content = `git log summary (${days} days) for ${repoName}:\n${log}`;
+    const memory = await store.add(content, {
+      topics: ['gitlog', repoName],
+      source: 'gitlog',
+      workspace: gitRoot,
+    });
+
+    if (options.json) {
+      console.log(JSON.stringify({
+        type: 'ingest_git',
+        repo: repoName,
+        days,
+        added: true,
+        memoryId: memory.id,
+      }, null, 2));
+    } else {
+      console.log(`Ingested git log for ${repoName}: ${memory.id}`);
+    }
+
+    store.close();
+  });
+
+program
+  .command('mcp')
+  .description('Start a minimal MCP server over stdio (experimental)')
+  .option('-w, --workspace <path>', 'Workspace path', '.')
+  .option('--wrap-errors', 'Wrap tool errors in a JSON result object')
+  .action(async (options: { workspace: string; wrapErrors?: boolean }) => {
+    await startMcpServer({ workspace: options.workspace, wrapErrors: options.wrapErrors });
   });
 
 // ============================================================================

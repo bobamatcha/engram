@@ -86,10 +86,97 @@ console.log(`Generated: ${result.skillPath}`);
 | `search` | Search memories |
 | `add` | Add a memory |
 | `stats` | Show memory statistics |
+| `ingest-git` | Ingest recent git log summaries into memory |
 | `ingest-claude` | Import Claude Code sessions |
 | `ingest-openclaw` | Import OpenClaw sessions |
 
 Run `engram <command> --help` for options.
+
+## Memory Maintenance
+
+Keep memory current with lightweight, decoupled workflows.
+
+### Ingest recent git activity
+
+```bash
+# Ingest recent commits from the current repo
+engram ingest-git --days 30
+```
+
+### Ingest multiple repos (helper script)
+
+```bash
+# From this repo
+./scripts/ingest-git-all.sh /path/to/repo1 /path/to/repo2
+```
+
+## Daily/Weekly Routine (Low Friction)
+
+Drop this into your project README or team docs to make Engram stick:
+
+```md
+### Engram Routine
+
+**Daily (end of session):**
+- `engram ingest-git --days 7`
+- `engram add "one non-obvious learning" -t gotcha,decision,pattern`
+
+**Before starting a task:**
+- `engram search "your keywords"`
+
+**Monthly (per project):**
+- `engram generate-skill --workspace . --days 30 --output ./generated-skills`
+```
+
+For automation, use a scheduler (e.g. Heartbeat) to run `ingest-git` across repos weekly.
+
+## MCP Server (Experimental)
+
+Expose Engram as a minimal MCP server over stdio.
+
+```bash
+engram mcp --workspace .
+```
+
+Available tools:
+
+- `engram.search` — BM25 memory search
+- `engram.add` — add a memory
+- `engram.stats` — memory stats
+- `engram.ingestGit` — ingest recent git log summary
+- `engram.summarize` — summarize recent sessions (requires `ANTHROPIC_API_KEY`)
+
+`engram.summarize` inputs:
+
+- `days` (number, default 30)
+- `minConfidence` (number, default 0.5)
+- `includeOpenClaw` (boolean, default true)
+- `openclawAgent` (string, optional)
+
+Optional error wrapper (for clients that prefer tool errors in `result`):
+
+```bash
+engram mcp --workspace . --wrap-errors
+```
+
+Without `--wrap-errors`, tool failures return `{ error, message }` in the tool result.
+
+Smoke test:
+
+```bash
+node ./scripts/mcp-smoke.js
+```
+
+Example MCP client config (stdio):
+
+```json
+{
+  "command": "node",
+  "args": ["/absolute/path/to/engram/dist/cli.js", "mcp", "--workspace", "/path/to/project"]
+}
+```
+
+Plan + rationale: `docs/MCP_PLAN.md`
 
 ## Features
 
