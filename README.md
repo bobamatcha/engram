@@ -2,12 +2,12 @@
 
 Memory layer for AI coding agents. Stores context, extracts patterns, generates skills.
 
-[![npm version](https://img.shields.io/npm/v/engram.svg)](https://www.npmjs.com/package/engram)
+[![npm version](https://img.shields.io/npm/v/@4meta5/engram.svg)](https://www.npmjs.com/package/@4meta5/engram)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 ```bash
 # Generate a skill from your Claude Code sessions
-npx engram generate-skill --workspace . --output ./skills
+npx @4meta5/engram generate-skill --workspace . --output ./skills
 ```
 
 ## What It Does
@@ -19,17 +19,17 @@ npx engram generate-skill --workspace . --output ./skills
 
 ## Packages
 
-| Package | Description |
-|---------|-------------|
-| [`@4meta5/semantic-memory`](./packages/semantic-memory) | SQLite-backed memory store with hybrid search |
-| [`@4meta5/skill-generator`](./packages/skill-generator) | Session parsing and skill generation |
-| `engram` | CLI and unified exports |
+| Package | Path | npm |
+|---------|------|-----|
+| `@4meta5/engram` | `.` | [![npm](https://img.shields.io/npm/v/@4meta5/engram)](https://npmjs.com/package/@4meta5/engram) |
+| `@4meta5/semantic-memory` | `packages/semantic-memory` | [![npm](https://img.shields.io/npm/v/@4meta5/semantic-memory)](https://npmjs.com/package/@4meta5/semantic-memory) |
+| `@4meta5/skill-generator` | `packages/skill-generator` | [![npm](https://img.shields.io/npm/v/@4meta5/skill-generator)](https://npmjs.com/package/@4meta5/skill-generator) |
 
 ## Architecture
 
 ```mermaid
 graph TD
-    CLI[engram CLI] --> SM[@4meta5/semantic-memory]
+    CLI[@4meta5/engram CLI] --> SM[@4meta5/semantic-memory]
     CLI --> SG[@4meta5/skill-generator]
     SG --> Parsers[Session Parsers]
     SG --> Extractors[Pattern Extractors]
@@ -45,7 +45,7 @@ graph TD
 
 ```bash
 # Install globally
-npm install -g engram
+npm install -g @4meta5/engram
 
 # Generate a skill from Claude Code history
 engram generate-skill --workspace /path/to/project --output ./skills
@@ -63,7 +63,7 @@ engram sessions --days 7
 ### Library
 
 ```typescript
-import { createMemoryStore, generateProjectSkill } from 'engram';
+import { createMemoryStore, generateProjectSkill } from '@4meta5/engram';
 
 // Memory storage
 const store = createMemoryStore({ dbPath: './memory.db' });
