@@ -77,18 +77,44 @@ console.log(`Generated: ${result.skillPath}`);
 
 ## CLI Reference
 
+### Core Commands (Stable)
+
 | Command | Description |
 |---------|-------------|
-| `generate-skill` | Generate skill from session history |
-| `evaluate-skill` | Check if sessions warrant skill generation |
-| `summarize` | Extract learnings with LLM (requires ANTHROPIC_API_KEY) |
-| `sessions` | List session history |
 | `search` | Search memories |
 | `add` | Add a memory |
 | `stats` | Show memory statistics |
 | `ingest-git` | Ingest recent git log summaries into memory |
 | `ingest-claude` | Import Claude Code sessions |
+| `sessions` | List session history (Claude Code by default) |
+| `generate-skill` | Generate skill from session history |
+
+### Experimental Commands
+
+| Command | Description |
+|---------|-------------|
+| `summarize` | Extract learnings with LLM (requires Claude Code OAuth) |
+| `evaluate-skill` | Check if sessions warrant skill generation |
+| `mcp` | Start MCP server over stdio |
 | `ingest-openclaw` | Import OpenClaw sessions |
+
+### Authentication (summarize only)
+
+Both CLI and MCP use Claude Code OAuth credentials:
+- macOS Keychain (`Claude Code-credentials` service)
+- `~/.claude/.credentials.json` (fallback)
+
+If credentials are expired, they are refreshed automatically. If no credentials are found, open Claude Code and sign in.
+
+### OpenClaw Support
+
+OpenClaw sessions are **off by default**. Use `--openclaw` flag to include:
+
+```bash
+engram generate-skill --workspace . --openclaw
+engram summarize --workspace . --openclaw
+engram sessions --source all  # or --source openclaw
+```
 
 Run `engram <command> --help` for options.
 
@@ -144,13 +170,13 @@ Available tools:
 - `engram.add` — add a memory
 - `engram.stats` — memory stats
 - `engram.ingestGit` — ingest recent git log summary
-- `engram.summarize` — summarize recent sessions (requires `ANTHROPIC_API_KEY`)
+- `engram.summarize` — summarize recent sessions (requires Claude Code OAuth)
 
 `engram.summarize` inputs:
 
 - `days` (number, default 30)
 - `minConfidence` (number, default 0.5)
-- `includeOpenClaw` (boolean, default true)
+- `includeOpenClaw` (boolean, default false)
 - `openclawAgent` (string, optional)
 
 Optional error wrapper (for clients that prefer tool errors in `result`):

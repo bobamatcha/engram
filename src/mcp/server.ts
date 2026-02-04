@@ -15,6 +15,7 @@ import {
   summarizeSession,
   type UnifiedSession,
 } from '@4meta5/skill-generator';
+import { getAnthropicOAuthToken } from '../auth/claude-oauth.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -87,7 +88,7 @@ const TOOL_DEFS = [
   },
   {
     name: 'engram.summarize',
-    description: 'Summarize recent sessions and extract learnings (requires ANTHROPIC_API_KEY)',
+    description: 'Summarize recent sessions and extract learnings (requires Claude Code OAuth). OpenClaw off by default; set includeOpenClaw=true to include.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -192,14 +193,15 @@ async function handleToolCall(name: string, args: Record<string, unknown>, defau
     }
 
     if (name === 'engram.summarize') {
-      const apiKey = process.env.ANTHROPIC_API_KEY;
-      if (!apiKey) {
-        return { error: 'missing_anthropic_api_key' };
+      // OAuth-only authentication
+      const oauthResult = await getAnthropicOAuthToken();
+      if (!oauthResult.ok) {
+        return { error: 'missing_oauth', message: 'Open Claude Code and sign in.' };
       }
 
       const days = typeof args.days === 'number' ? args.days : 30;
       const minConfidence = typeof args.minConfidence === 'number' ? args.minConfidence : 0.5;
-      const includeOpenClaw = typeof args.includeOpenClaw === 'boolean' ? args.includeOpenClaw : true;
+      const includeOpenClaw = typeof args.includeOpenClaw === 'boolean' ? args.includeOpenClaw : false;
       const openclawAgent = typeof args.openclawAgent === 'string' ? args.openclawAgent : undefined;
 
       const sessions = collectSessions(workspace, days, includeOpenClaw, openclawAgent);
@@ -213,7 +215,7 @@ async function handleToolCall(name: string, args: Record<string, unknown>, defau
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
-              'x-api-key': apiKey,
+              'Authorization': `Bearer ${oauthResult.token}`,
               'anthropic-version': '2023-06-01',
             },
             body: JSON.stringify({

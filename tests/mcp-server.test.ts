@@ -3,8 +3,16 @@ import { execSync } from 'child_process';
 import { mkdtemp, rm } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { startMcpServer } from '../src/mcp/server.js';
+
+// Mock OAuth for summarize error tests
+vi.mock('../src/auth/claude-oauth.js', () => ({
+  getAnthropicOAuthToken: vi.fn().mockResolvedValue({
+    ok: false,
+    error: 'No Claude Code credentials found.',
+  }),
+}));
 
 function createIo() {
   const input = new PassThrough();
@@ -186,7 +194,7 @@ describe('engram MCP server', () => {
     server.close();
   });
 
-  it('returns a missing API key error for summarize', async () => {
+  it('returns a missing OAuth error for summarize', async () => {
     tempDir = await mkdtemp(join(tmpdir(), 'engram-mcp-summary-'));
     const { input, output, waitForId } = createIo();
     const server = await startMcpServer({ workspace: tempDir, input, output });
@@ -202,7 +210,8 @@ describe('engram MCP server', () => {
     }) + '\n');
 
     const response = await waitForId(5);
-    expect(response.result.error).toBe('missing_anthropic_api_key');
+    expect(response.result.error).toBe('missing_oauth');
+    expect(response.result.message).toBe('Open Claude Code and sign in.');
 
     server.close();
   });
@@ -224,7 +233,8 @@ describe('engram MCP server', () => {
 
     const response = await waitForId(11);
     expect(response.result.ok).toBe(false);
-    expect(response.result.error.code).toBe('missing_anthropic_api_key');
+    expect(response.result.error.code).toBe('missing_oauth');
+    expect(response.result.error.message).toBe('Open Claude Code and sign in.');
 
     server.close();
   });

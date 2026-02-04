@@ -34,6 +34,7 @@ import {
   type UnifiedSession,
 } from '@4meta5/skill-generator';
 import { startMcpServer } from './mcp/server.js';
+import { getAnthropicOAuthToken } from './auth/claude-oauth.js';
 
 const program = new Command();
 
@@ -75,6 +76,7 @@ program
 
     if (options.json) {
       console.log(JSON.stringify({
+        schemaVersion: '1.0',
         type: 'search',
         query,
         results: results.map(r => ({
@@ -119,7 +121,7 @@ program
     });
 
     if (options.json) {
-      console.log(JSON.stringify({ type: 'memory_added', memory }, null, 2));
+      console.log(JSON.stringify({ schemaVersion: '1.0', type: 'memory_added', memory }, null, 2));
     } else {
       console.log(`Memory added: ${memory.id}`);
     }
@@ -138,7 +140,7 @@ program
     const stats = store.getStats();
 
     if (options.json) {
-      console.log(JSON.stringify({ type: 'stats', ...stats }, null, 2));
+      console.log(JSON.stringify({ schemaVersion: '1.0', type: 'stats', ...stats }, null, 2));
     } else {
       console.log('engram statistics:');
       console.log(`  Total memories:        ${stats.totalMemories}`);
@@ -179,6 +181,7 @@ program
     if (!log) {
       if (options.json) {
         console.log(JSON.stringify({
+          schemaVersion: '1.0',
           type: 'ingest_git',
           repo: repoName,
           days,
@@ -201,6 +204,7 @@ program
 
     if (options.json) {
       console.log(JSON.stringify({
+        schemaVersion: '1.0',
         type: 'ingest_git',
         repo: repoName,
         days,
@@ -233,14 +237,14 @@ program
   .option('-w, --workspace <path>', 'Workspace path to filter sessions', '.')
   .option('-o, --output <path>', 'Output directory for skill', './skills')
   .option('-d, --days <number>', 'Days of history to analyze', '30')
-  .option('--no-openclaw', 'Exclude OpenClaw sessions')
+  .option('--openclaw', 'Include OpenClaw sessions (off by default)')
   .option('-a, --agent <id>', 'OpenClaw agent ID filter')
   .option('--json', 'Output JSON')
   .action(async (options: {
     workspace: string;
     output: string;
     days: string;
-    openclaw: boolean;
+    openclaw?: boolean;
     agent?: string;
     json?: boolean;
   }) => {
@@ -252,13 +256,14 @@ program
         options.output,
         {
           days,
-          includeOpenClaw: options.openclaw,
+          includeOpenClaw: options.openclaw ?? false,
           openclawAgent: options.agent,
         }
       );
 
       if (options.json) {
         console.log(JSON.stringify({
+          schemaVersion: '1.0',
           type: 'skill_generated',
           skillPath: result.skillPath,
           workspace: options.workspace,
@@ -301,14 +306,14 @@ program
   .option('-w, --workspace <path>', 'Workspace path to filter sessions', '.')
   .option('-d, --days <number>', 'Days of history to analyze', '7')
   .option('-t, --threshold <number>', 'Trigger threshold (0-1)', '0.5')
-  .option('--no-openclaw', 'Exclude OpenClaw sessions')
+  .option('--openclaw', 'Include OpenClaw sessions (off by default)')
   .option('-a, --agent <id>', 'OpenClaw agent ID filter')
   .option('--json', 'Output JSON')
   .action(async (options: {
     workspace: string;
     days: string;
     threshold: string;
-    openclaw: boolean;
+    openclaw?: boolean;
     agent?: string;
     json?: boolean;
   }) => {
@@ -348,7 +353,7 @@ program
 
     if (allSessions.length === 0) {
       if (options.json) {
-        console.log(JSON.stringify({ shouldTrigger: false, reason: 'no_sessions' }));
+        console.log(JSON.stringify({ schemaVersion: '1.0', shouldTrigger: false, reason: 'no_sessions' }));
       } else {
         console.log('No sessions found for workspace');
       }
@@ -360,6 +365,7 @@ program
 
     if (options.json) {
       console.log(JSON.stringify({
+        schemaVersion: '1.0',
         type: 'evaluation',
         ...evaluation,
       }, null, 2));
@@ -386,7 +392,7 @@ program
 program
   .command('sessions')
   .description('List session history')
-  .option('-s, --source <type>', 'Source: claude-code, openclaw, all', 'all')
+  .option('-s, --source <type>', 'Source: claude-code, openclaw, all', 'claude-code')
   .option('-d, --days <number>', 'Days of history', '7')
   .option('-a, --agent <id>', 'Agent ID (OpenClaw only)')
   .option('--json', 'Output JSON')
@@ -451,6 +457,7 @@ program
 
     if (options.json) {
       console.log(JSON.stringify({
+        schemaVersion: '1.0',
         type: 'sessions',
         count: allSessions.length,
         sessions: allSessions.map(s => ({
@@ -476,10 +483,10 @@ program
 
 program
   .command('summarize')
-  .description('Summarize sessions and extract learnings (requires ANTHROPIC_API_KEY)')
+  .description('Summarize sessions and extract learnings (requires Claude Code OAuth)')
   .option('-w, --workspace <path>', 'Workspace path to filter sessions', '.')
   .option('-d, --days <number>', 'Days of history to analyze', '30')
-  .option('--no-openclaw', 'Exclude OpenClaw sessions')
+  .option('--openclaw', 'Include OpenClaw sessions (off by default)')
   .option('-a, --agent <id>', 'OpenClaw agent ID filter')
   .option('-c, --min-confidence <number>', 'Minimum confidence threshold (0-1)', '0.5')
   .option('-o, --output <path>', 'Output file for learnings JSON')
@@ -487,19 +494,35 @@ program
   .action(async (options: {
     workspace: string;
     days: string;
-    openclaw: boolean;
+    openclaw?: boolean;
     agent?: string;
     minConfidence: string;
     output?: string;
     json?: boolean;
   }) => {
-    // Check for API key
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) {
-      console.error('Error: ANTHROPIC_API_KEY environment variable is required');
-      console.error('Set it with: export ANTHROPIC_API_KEY=your-key');
+    // Print experimental warning in non-JSON mode
+    if (!options.json) {
+      console.log('Warning: engram summarize is experimental and may change.');
+      console.log('');
+    }
+
+    // OAuth-only authentication (Claude Code credentials)
+    const oauthResult = await getAnthropicOAuthToken();
+
+    if (!oauthResult.ok) {
+      console.error('Error: Claude Code OAuth credentials required.');
+      console.error('');
+      console.error('Please open Claude Code and sign in, then try again.');
+      console.error('');
+      console.error(oauthResult.error);
       process.exit(1);
     }
+
+    const authHeaders = {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${oauthResult.token}`,
+      'anthropic-version': '2023-06-01',
+    };
 
     const days = parseInt(options.days, 10);
     const minConfidence = parseFloat(options.minConfidence);
@@ -511,11 +534,7 @@ program
       complete: async (prompt: string): Promise<string> => {
         const response = await fetch('https://api.anthropic.com/v1/messages', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': apiKey,
-            'anthropic-version': '2023-06-01',
-          },
+          headers: authHeaders,
           body: JSON.stringify({
             model: 'claude-sonnet-4-20250514',
             max_tokens: 4096,
@@ -600,6 +619,7 @@ program
 
     // Output results
     const result = {
+      schemaVersion: '1.0',
       type: 'summarize',
       workspace: resolvedWorkspace,
       sessionsProcessed: allSessions.length,
@@ -660,10 +680,10 @@ program
     const stats = store.getStats();
 
     if (options.json) {
-      console.log(JSON.stringify({ type: 'index', ...stats }, null, 2));
+      console.log(JSON.stringify({ schemaVersion: '1.0', type: 'index', ...stats }, null, 2));
     } else {
       console.log(`Index: ${stats.totalMemories} memories`);
-      console.log('Note: Tree-sitter indexing not yet implemented in new architecture');
+      console.log('Note: Codebase indexing available via ingest-git');
     }
 
     store.close();
@@ -703,6 +723,7 @@ program
 
     if (options.json) {
       console.log(JSON.stringify({
+        schemaVersion: '1.0',
         type: 'ingest_complete',
         source: 'claude-code',
         memoriesAdded: added,
@@ -754,6 +775,7 @@ program
 
     if (options.json) {
       console.log(JSON.stringify({
+        schemaVersion: '1.0',
         type: 'ingest_complete',
         source: 'openclaw',
         memoriesAdded: added,
@@ -775,5 +797,18 @@ program
 
     store.close();
   });
+
+// Backward compatibility: handle deprecated --no-openclaw flag
+// Only applies to commands that previously supported it (check positional subcommand)
+const openclawCommands = ['generate-skill', 'evaluate-skill', 'summarize', 'sessions'];
+const subcommand = process.argv[2];
+const noOpenclawIndex = process.argv.indexOf('--no-openclaw');
+if (noOpenclawIndex !== -1 && openclawCommands.includes(subcommand)) {
+  console.error('Warning: --no-openclaw is deprecated (OpenClaw is now off by default).');
+  console.error('Use --openclaw to explicitly include OpenClaw sessions.');
+  console.error('');
+  // Remove the flag so Commander doesn't error on unknown option
+  process.argv.splice(noOpenclawIndex, 1);
+}
 
 program.parse();

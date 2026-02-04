@@ -38,18 +38,13 @@ chmod +x .claude/hooks/engram-generate-skill.sh
 
 ## Recipe B: Summarize sessions into learnings (LLM required)
 
-This uses the `engram summarize` command and requires `ANTHROPIC_API_KEY`.
+This uses the `engram summarize` command and requires Claude Code OAuth (sign into Claude Code first).
 
 ```bash
 mkdir -p .claude/hooks
 cat <<'SH' > .claude/hooks/engram-summarize.sh
 #!/usr/bin/env bash
 set -euo pipefail
-
-if [ -z "${ANTHROPIC_API_KEY:-}" ]; then
-  echo "ANTHROPIC_API_KEY not set; skipping summarization" >&2
-  exit 0
-fi
 
 npx -y @4meta5/engram summarize --workspace . --days 7 --min-confidence 0.6 >/dev/null
 SH

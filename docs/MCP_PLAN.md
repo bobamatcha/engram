@@ -28,7 +28,7 @@ This plan keeps Engram as a standalone CLI/library and adds an optional MCP serv
 
 5) `engram.summarize`
    - Input: `{ "workspace"?: string, "days"?: number, "minConfidence"?: number }`
-   - Output: `{ learnings: Array<...> }` (requires `ANTHROPIC_API_KEY`)
+   - Output: `{ learnings: Array<...> }` (requires Claude Code OAuth)
 
 ## Implementation Sketch
 
@@ -39,7 +39,7 @@ This plan keeps Engram as a standalone CLI/library and adds an optional MCP serv
 ## Decoupling Rules
 
 - No hard dependency on `@4meta5/skills-cli` or `@4meta5/scout`.
-- Use environment variables for auth (e.g., `ANTHROPIC_API_KEY`).
+- Use Claude Code OAuth for auth (reads from Keychain or `~/.claude/.credentials.json`).
 - Keep token handling in the caller; do not store secrets.
 
 ## Suggested CLI Wiring
