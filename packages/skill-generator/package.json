@@ -1,6 +1,6 @@
 {
   "name": "@4meta5/skill-generator",
-  "version": "0.1.0",
+  "version": "0.2.2",
   "description": "Extract learnings from AI coding sessions and generate skills",
   "type": "module",
   "main": "dist/index.js",
@@ -11,6 +11,10 @@
       "import": "./dist/index.js"
     }
   },
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
@@ -29,7 +33,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/bobamatcha/engram",
+    "url": "git+https://github.com/bobamatcha/engram.git",
     "directory": "packages/skill-generator"
   },
   "engines": {

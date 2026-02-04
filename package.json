@@ -1,6 +1,6 @@
 {
   "name": "@4meta5/engram",
-  "version": "0.2.0",
+  "version": "0.2.2",
   "description": "Cognitive repository for developer memory. Indexes code AND context.",
   "type": "module",
   "main": "dist/index.js",
@@ -8,6 +8,11 @@
   "bin": {
     "engram": "dist/cli.js"
   },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "npm run build:packages && tsc",
     "build:packages": "npm run build -w @4meta5/semantic-memory && npm run build -w @4meta5/skill-generator",
@@ -35,7 +40,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/bobamatcha/engram"
+    "url": "git+https://github.com/bobamatcha/engram.git"
   },
   "engines": {
     "node": ">=20"

@@ -1,6 +1,6 @@
 {
   "name": "@4meta5/semantic-memory",
-  "version": "0.1.0",
+  "version": "0.2.2",
   "description": "Standalone semantic memory storage with hybrid search (BM25 + vector + RRF fusion)",
   "type": "module",
   "main": "dist/index.js",
@@ -11,6 +11,10 @@
       "import": "./dist/index.js"
     }
   },
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
@@ -32,7 +36,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/bobamatcha/engram",
+    "url": "git+https://github.com/bobamatcha/engram.git",
     "directory": "packages/semantic-memory"
   },
   "engines": {
